@@ -1,0 +1,358 @@
+version: "0.3"
+components:
+  - id: routingModel
+    type: model
+    config:
+      connectionId: gemini-main
+      model: gemini-3.5-flash-lite
+      temperature: 0
+      maxTokens: 500
+  - id: routingPrompt
+    type: prompt
+    config:
+      template: |-
+        Route the request to direct for a simple answer, research for evidence gathering,
+        or engineering for implementation and verification. {{input}}
+  - id: classify
+    type: classifier
+    config:
+      routes: [direct, research, engineering]
+      fallback: engineering
+      minConfidence: 0.7
+  - id: direct
+    type: subgraph
+    config: { subgraph: directAgent }
+  - id: research
+    type: team
+    config: { team: researchTeam }
+  - id: engineering
+    type: team
+    config: { team: engineeringTeam }
+  - id: routedResult
+    type: join
+    config: { mode: concat, separator: "\n\n" }
+  - id: qualityLoop
+    type: loop
+    config:
+      subgraph: qualityPass
+      maxIterations: 2
+      carry: replace
+      timeoutMs: 120000
+      maxTokens: 30000
+      until: { path: /evaluation/passed, op: truthy }
+  - id: hostContext
+    type: context
+    # Selected fileRefs arrive as verified external attachments in SDK run context.
+    config: { source: external }
+  - id: userMemory
+    type: memory
+    config: { key: userPreferences, operation: read, namespace: user }
+  - id: conversationMemory
+    type: memory
+    config: { key: relevantConversationMemory, operation: read, namespace: conversation }
+  - id: pkmMemory
+    type: memory
+    config: { key: relevantKnowledge, operation: read, namespace: pkm }
+  - id: assembledHostContext
+    type: join
+    config: { mode: concat, separator: "\n\n" }
+  - id: finalModel
+    type: model
+    config:
+      connectionId: gemini-main
+      model: gemini-3.5-flash-lite
+      temperature: 0.1
+      maxTokens: 3000
+  - id: finalPrompt
+    type: prompt
+    config:
+      template: |-
+        Return only the verified public answer below. Preserve useful citation markers,
+        omit internal plans and evaluation metadata, and do not claim tools ran unless
+        the supplied result says they did.
+
+        {{input}}
+  - id: answer
+    type: agent
+    config:
+      system: You are the final public response boundary.
+      maxTurns: 2
+      maxTokens: 8000
+  - id: output
+    type: output
+    config: { format: text }
+connections:
+  - id: routing_model
+    from: { component: routingModel, port: model }
+    to: { component: classify, port: model }
+  - id: routing_prompt
+    from: { component: routingPrompt, port: prompt }
+    to: { component: classify, port: prompt }
+  - id: direct_route
+    from: { component: classify, port: decision }
+    to: { component: direct, port: value }
+    select: /value
+    condition: { path: /route, op: equals, value: direct }
+  - id: research_route
+    from: { component: classify, port: decision }
+    to: { component: research, port: value }
+    select: /value
+    condition: { path: /route, op: equals, value: research }
+  - id: engineering_route
+    from: { component: classify, port: decision }
+    to: { component: engineering, port: value }
+    select: /value
+    condition: { path: /route, op: equals, value: engineering }
+  - id: direct_join
+    from: { component: direct, port: value }
+    to: { component: routedResult, port: values }
+  - id: research_join
+    from: { component: research, port: value }
+    to: { component: routedResult, port: values }
+  - id: engineering_join
+    from: { component: engineering, port: value }
+    to: { component: routedResult, port: values }
+  - id: result_quality
+    from: { component: routedResult, port: value }
+    to: { component: qualityLoop, port: value }
+  - id: final_model
+    from: { component: finalModel, port: model }
+    to: { component: answer, port: model }
+  - id: final_prompt
+    from: { component: finalPrompt, port: prompt }
+    to: { component: answer, port: prompt }
+  - id: quality_answer
+    from: { component: qualityLoop, port: value }
+    to: { component: assembledHostContext, port: values }
+    select: /draft
+  - { from: { component: hostContext, port: context }, to: { component: assembledHostContext, port: values } }
+  - { from: { component: userMemory, port: memory }, to: { component: assembledHostContext, port: values } }
+  - { from: { component: conversationMemory, port: memory }, to: { component: assembledHostContext, port: values } }
+  - { from: { component: pkmMemory, port: memory }, to: { component: assembledHostContext, port: values } }
+  - { from: { component: assembledHostContext, port: value }, to: { component: answer, port: context } }
+  - id: answer_output
+    from: { component: answer, port: response }
+    to: { component: output, port: value }
+entrypoint: output
+
+subgraphs:
+  directAgent:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0.2, maxTokens: 1800 }
+      - id: prompt
+        type: prompt
+        config: { template: "Answer directly and concisely. {{input}}" }
+      - id: memory
+        type: memory
+        config: { key: userPreferences, operation: read, namespace: user }
+      - id: agent
+        type: agent
+        config: { maxTurns: 3, maxTokens: 2200 }
+      - id: output
+        type: output
+        config: { format: text }
+    connections:
+      - { from: { component: model, port: model }, to: { component: agent, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: agent, port: prompt } }
+      - { from: { component: memory, port: memory }, to: { component: agent, port: memory } }
+      - { from: { component: agent, port: response }, to: { component: output, port: value } }
+    entrypoint: output
+
+  chiefAgent:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0.1, maxTokens: 2200 }
+      - id: prompt
+        type: prompt
+        config:
+          template: |-
+            You orchestrate a bounded team. During plan, return the smallest dependency-aware task list.
+            During synthesize, return only a verified finalAnswer. {{input}}
+      - id: agent
+        type: agent
+        config: { maxTurns: 4, maxTokens: 10000 }
+      - id: output
+        type: output
+        config:
+          format: json
+          schema:
+            type: object
+            properties:
+              status: { enum: [direct, tasks, complete] }
+              finalAnswer: {}
+              tasks:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_-]{0,127}$" }
+                    goal: { type: string }
+                    agent: { type: string }
+                    dependsOn: { type: array, items: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_-]{0,127}$" } }
+                  required: [id, goal, agent]
+            required: [status]
+    connections:
+      - { from: { component: model, port: model }, to: { component: agent, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: agent, port: prompt } }
+      - { from: { component: agent, port: response }, to: { component: output, port: value } }
+    entrypoint: output
+
+  researcherAgent:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0.1, maxTokens: 3000 }
+      - id: prompt
+        type: prompt
+        config: { template: "Gather current evidence, cite URLs, and separate facts from inference. Report the result once, then return one concise final text and stop. {{input}}" }
+      - id: search
+        type: tool
+        config: { tool: builtin.web-search, connectionId: search-main, source: builtin, risk: external, label: Web Search }
+      - id: scrape
+        type: tool
+        config: { tool: builtin.web-scrape, connectionId: search-main, source: builtin, risk: external, label: Web Scrape }
+      - id: agent
+        type: agent
+        config:
+          maxTurns: 8
+          maxToolCalls: 10
+          toolTimeoutMs: 30000
+          maxTokens: 16000
+          toolError: model
+          allowTools: [builtin.web-search, builtin.web-scrape]
+      - id: output
+        type: output
+        config: { format: text }
+    connections:
+      - { from: { component: model, port: model }, to: { component: agent, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: agent, port: prompt } }
+      - { from: { component: search, port: tool }, to: { component: agent, port: tools } }
+      - { from: { component: scrape, port: tool }, to: { component: agent, port: tools } }
+      - { from: { component: agent, port: response }, to: { component: output, port: value } }
+    entrypoint: output
+
+  engineerAgent:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0.1, maxTokens: 5000 }
+      - id: prompt
+        type: prompt
+        config: { template: "Inspect, implement minimally, run a real check, and report exact artifacts. {{input}}" }
+      - id: code
+        type: tool
+        config: { tool: builtin.code-runner, connectionId: sandbox-main, source: builtin, risk: destructive, label: Code Runner }
+      - id: files
+        type: tool
+        config: { tool: builtin.file, connectionId: sandbox-main, source: builtin, risk: write, label: Workspace Files }
+      - id: shell
+        type: tool
+        config: { tool: builtin.shell, connectionId: sandbox-main, source: builtin, risk: destructive, label: Sandbox Shell }
+      - id: agent
+        type: agent
+        config:
+          maxTurns: 10
+          maxToolCalls: 14
+          toolTimeoutMs: 60000
+          maxTokens: 24000
+          toolError: model
+          allowTools: [builtin.code-runner, builtin.file, builtin.shell]
+      - id: output
+        type: output
+        config: { format: text }
+    connections:
+      - { from: { component: model, port: model }, to: { component: agent, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: agent, port: prompt } }
+      - { from: { component: code, port: tool }, to: { component: agent, port: tools } }
+      - { from: { component: files, port: tool }, to: { component: agent, port: tools } }
+      - { from: { component: shell, port: tool }, to: { component: agent, port: tools } }
+      - { from: { component: agent, port: response }, to: { component: output, port: value } }
+    entrypoint: output
+
+  reviewerAgent:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0, maxTokens: 2200 }
+      - id: prompt
+        type: prompt
+        config: { template: "Review goal completion, evidence, safety, and checks. Request only material fixes. Report the result once, then return one concise final text and stop. {{input}}" }
+      - id: agent
+        type: agent
+        config: { maxTurns: 4, maxTokens: 10000 }
+      - id: output
+        type: output
+        config: { format: text }
+    connections:
+      - { from: { component: model, port: model }, to: { component: agent, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: agent, port: prompt } }
+      - { from: { component: agent, port: response }, to: { component: output, port: value } }
+    entrypoint: output
+
+  qualityPass:
+    components:
+      - id: model
+        type: model
+        config: { connectionId: gemini-main, model: gemini-3.5-flash-lite, temperature: 0, maxTokens: 3000 }
+      - id: prompt
+        type: prompt
+        config:
+          template: |-
+            Improve this candidate once. Preserve citations, remove unsupported claims, and include a
+            compact Sources section only when the candidate cites sources. Follow exact-output requests.
+            Return only the improved draft. {{input}}
+      - id: candidate
+        type: agent
+        config: { maxTurns: 2, maxTokens: 8000 }
+      - id: grounded
+        type: evaluator
+        config: { type: matches, value: "\\S" }
+      - id: result
+        type: join
+        config: { mode: object, keys: [draft, evaluation] }
+    connections:
+      - { from: { component: model, port: model }, to: { component: candidate, port: model } }
+      - { from: { component: prompt, port: prompt }, to: { component: candidate, port: prompt } }
+      - { from: { component: candidate, port: response }, to: { component: grounded, port: value } }
+      - { from: { component: grounded, port: value }, to: { component: result, port: values } }
+      - { from: { component: grounded, port: evaluation }, to: { component: result, port: values } }
+    entrypoint: result
+
+agentTemplates:
+  chief:
+    description: Plans, delegates, accepts bounded revisions, and synthesizes a result
+    runner: { subgraph: chiefAgent }
+  researcher:
+    description: Finds and cites current evidence
+    capabilities: [network]
+    runner: { subgraph: researcherAgent }
+  engineer:
+    description: Implements and verifies in an isolated workspace
+    capabilities: [process, workspace-write]
+    runner: { subgraph: engineerAgent }
+  reviewer:
+    description: Checks evidence, safety, and completion
+    runner: { subgraph: reviewerAgent }
+teams:
+  researchTeam:
+    orchestrator: chief
+    members: [researcher, reviewer]
+    limits: { maxInstances: 5, maxDepth: 2, maxParallel: 2, maxMessages: 40, maxPlanRevisions: 8 }
+  engineeringTeam:
+    orchestrator: chief
+    members: [researcher, engineer, reviewer]
+    limits: { maxInstances: 8, maxDepth: 2, maxParallel: 3, maxMessages: 64, maxPlanRevisions: 12 }
+runtime:
+  timeoutMs: 600000
+  retry: { maxAttempts: 2, backoffMs: 500, maxBackoffMs: 2000 }
+  budget: { maxTokens: 100000 }
+  context: { overflow: compact, cacheMode: automatic }
+tests:
+  - id: direct-answer
+    input: Explain the product in one sentence.
+    assertions:
+      - { type: matches, value: ".+" }
+      - { type: iterations, min: 1, max: 2 }

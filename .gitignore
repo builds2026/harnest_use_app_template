@@ -1,0 +1,7 @@
+.next/
+node_modules/
+.harnest/
+.env*
+!.env.example
+npm-debug.log*
+*.tsbuildinfo
