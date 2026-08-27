@@ -25,6 +25,7 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
         controller.enqueue(encoder.encode("retry: 3000\n\n"));
         send({ type: "status", runId, phase: "reconnecting", label: "Reconnected to durable run" });
         let polls = 0;
+        let waiting = false;
         while (!request.signal.aborted) {
           const [events, run] = await Promise.all([
             supabase.from("events").select("sequence,type,payload").eq("run_id", runId).gt("sequence", after).order("sequence").limit(100),
@@ -34,16 +35,19 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
           for (const row of events.data ?? []) {
             after = row.sequence;
             const payload = row.payload as Record<string, unknown>;
-            if (row.type === "text.delta" && typeof payload.text === "string") send({ type: "delta", text: payload.text }, row.sequence);
-            else if (row.type === "interaction.requested") send({ type: "interaction", runId, label: String((payload.interaction as { title?: unknown } | undefined)?.title ?? "Input required"), request: payload.interaction }, row.sequence);
-            else if (row.type !== "run.snapshot") send({ type: "status", runId, phase: row.type, label: runEventLabel(row.type, payload), event: payload }, row.sequence);
+            if (row.type === "text.delta" && typeof payload.text === "string") send({ type: "delta", sequence: row.sequence, text: payload.text }, row.sequence);
+            else if (row.type === "interaction.requested") send({ type: "interaction", sequence: row.sequence, runId, label: String((payload.interaction as { title?: unknown } | undefined)?.title ?? "Input required"), request: payload.interaction }, row.sequence);
+            else if (row.type !== "run.snapshot") send({ type: "status", sequence: row.sequence, runId, phase: row.type, label: runEventLabel(row.type, payload), event: payload }, row.sequence);
           }
           if (run.data.status === "succeeded") { send({ type: "done", runId, conversationId: run.data.conversation_id, output: typeof run.data.output === "string" ? run.data.output : JSON.stringify(run.data.output) }); break; }
           if (run.data.status === "failed" || run.data.status === "cancelled") { send({ type: "error", message: run.data.error ?? `Run ${run.data.status}` }); break; }
-          if (run.data.status === "waiting") { send({ type: "status", runId, phase: "waiting", label: "Waiting for interaction" }); break; }
+          if (run.data.status === "waiting") {
+            if (!waiting) send({ type: "status", runId, phase: "waiting", label: "Waiting for interaction" });
+            waiting = true;
+          } else waiting = false;
           polls += 1;
           if (polls % 30 === 0) controller.enqueue(encoder.encode(": heartbeat\n\n"));
-          await sleep(500);
+          await sleep(waiting ? 1_000 : 500);
         }
       } catch (error) { send({ type: "error", message: error instanceof Error ? error.message : "Run replay failed" }); }
       finally { controller.close(); }

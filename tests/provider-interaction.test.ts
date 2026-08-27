@@ -88,6 +88,7 @@ test("public interaction projection keeps only OAuth and permission UI metadata"
     title: "Connect", message: "Connect", blocking: "run", checkpoint: { revision: 0, sequence: 0, digest: "abcdefghijklmnop" }, createdAt: base.time,
     data: { url: "https://app.example/connect", state: "state", connectionRef: "connection", elicitationId: "github-oauth", token: "must-not-pass" },
   } });
+  assert.deepEqual((oauth.interaction as { requester: unknown }).requester, { kind: "harness", id: "node" });
   assert.deepEqual((oauth.interaction as { data: unknown }).data, { elicitationId: "github-oauth" });
 
   const permission = publicHarnestEvent({ ...base, data: {
@@ -106,13 +107,18 @@ test("UI covers every protocol interaction kind without credential inputs", asyn
   for (const kind of ["select", "input", "form", "file", "oauth", "permission"]) assert.match(source, new RegExp(`kind === ["']${kind}["']`, "u"));
   assert.match(source, /checkpointDigest/u);
   assert.match(source, /expiresAt/u);
-  assert.match(source, /enumAt/u);
+  assert.match(source, /SelectControl<unknown>/u);
+  assert.match(source, /Array\.isArray\(schema\.enum\)/u);
   assert.match(source, /minimum/u);
   assert.match(source, /event\.origin !== location\.origin/u);
   assert.match(source, /harnest\.oauth\.complete/u);
   assert.match(source, /\/api\/oauth\/start\?runId=/u);
   assert.doesNotMatch(source, /data\.authorizationUrl|data\.url|data\.state/u);
-  assert.match(source, /disabled=\{!persistentPermissionAllowed\}/u);
+  assert.match(source, /disabled=\{busy \|\| expired \|\| !persistentPermissionAllowed\}/u);
+  assert.match(source, /<InteractionCard key=\{String\(interaction\.id/u, "interaction-local state must reset at each durable request boundary");
+  for (const field of ["requester", "blocking", "risk", "toolId", "action", "capability", "connectionId", "resource"]) assert.match(source, new RegExp(field, "u"));
+  assert.match(source, /permission-preview[\s\S]*JSON\.stringify\(data\.input/u);
+  assert.match(source, /busy \|\| expired/u);
   const interaction = source.slice(source.indexOf("function InteractionCard"), source.indexOf("function ArtifactPanel"));
   assert.doesNotMatch(interaction, /type=["']password["']|access[_ -]?token|client[_ -]?secret/iu);
 });

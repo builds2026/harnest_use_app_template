@@ -60,6 +60,15 @@ test("terminal runs reject commands before external or queue mutation", async ()
   assert.doesNotMatch(route, /from\("jobs"\)\.insert/u);
 });
 
+test("run ownership is checked before every external command side effect", async () => {
+  const route = await readFile(new URL("app/api/runs/[runId]/commands/route.ts", root), "utf8");
+  const owned = route.indexOf('.eq("user_id", user.id).single()');
+  assert.ok(owned >= 0, "the controllable run lookup must be scoped to the authenticated user");
+  for (const effect of ["sdk.cancel", "sdk.respond", "sdk.command"]) {
+    assert.ok(owned < route.indexOf(effect), `ownership must be checked before ${effect}`);
+  }
+});
+
 test("accepted command retries are idempotent", async () => {
   const [sql, route] = await Promise.all([migration(), readFile(new URL("app/api/runs/[runId]/commands/route.ts", root), "utf8")]);
   assert.match(sql, /if receipt_status='accepted' then return 'accepted'/u);

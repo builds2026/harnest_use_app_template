@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { localDemoEnabled } from "@/lib/demo";
+import { demoAsset, localDemoEnabled } from "@/lib/demo";
 import { sha256Hex } from "@/lib/file-integrity";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServer, supabaseConfigured } from "@/lib/supabase/server";
@@ -8,8 +8,12 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const UUID = /^[0-9a-f-]{36}$/iu;
 
 export async function GET(request: Request) {
-  if (!supabaseConfigured()) return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   const id = new URL(request.url).searchParams.get("id");
+  if (localDemoEnabled()) {
+    const asset = id ? demoAsset("file", id) : undefined;
+    return asset ? new Response(asset.content, { headers: { "content-type": asset.mimeType, "content-disposition": `attachment; filename="${asset.name}"`, "x-content-type-options": "nosniff" } }) : NextResponse.json({ error: "Demo file is not available." }, { status: 404 });
+  }
+  if (!supabaseConfigured()) return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   if (!id || !UUID.test(id)) return NextResponse.json({ error: "Invalid file reference." }, { status: 400 });
   const supabase = await createSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
@@ -27,13 +31,14 @@ export async function POST(request: Request) {
   const file = form.get("file");
   const conversationId = form.get("conversationId");
   const runId = form.get("runId");
-  if (!(file instanceof File) || file.size === 0 || file.size > MAX_FILE_BYTES || (conversationId !== null && (typeof conversationId !== "string" || !UUID.test(conversationId)))) {
+  if (!(file instanceof File) || file.size === 0 || file.size > MAX_FILE_BYTES) {
     return NextResponse.json({ error: "A file up to 20 MiB is required." }, { status: 400 });
   }
   if (localDemoEnabled()) {
     const sha256 = await sha256Hex(file);
-    return NextResponse.json({ id: crypto.randomUUID(), fileRef: "demo-file-ref", name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, sha256, status: "local-only" });
+    return NextResponse.json({ id: crypto.randomUUID(), conversationId: typeof conversationId === "string" ? conversationId : "demo-quarterly", fileRef: `demo-file-${sha256.slice(0, 12)}`, name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, sha256, status: "session-ready" });
   }
+  if (conversationId !== null && (typeof conversationId !== "string" || !UUID.test(conversationId))) return NextResponse.json({ error: "A file up to 20 MiB is required." }, { status: 400 });
   if (!supabaseConfigured()) return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
 
   const supabase = await createSupabaseServer();

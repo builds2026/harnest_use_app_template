@@ -24,11 +24,13 @@ export interface FileItem {
   size: number;
   sha256?: string;
   status: string;
+  downloadUrl?: string;
 }
 
 export interface ArtifactItem extends FileItem {
   kind: string;
   summary?: string;
+  preview?: string;
   createdAt: string;
 }
 
@@ -46,11 +48,31 @@ export interface TraceItem {
   label: string;
   status: string;
   at: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface HarnessCapability {
+  id: string;
+  label: string;
+  kind: "capability" | "tool";
+  ready: boolean;
+  connectionId?: string;
+}
+
+export interface AppReadiness {
+  ready: boolean;
+  harnest: "ready" | "unreachable" | "not-configured";
+  requiredConnections: string[];
+  missingConnections: string[];
+  message?: string;
 }
 
 export interface AppState {
   mode: AppMode;
   setup?: { missing: string[] };
+  readiness?: AppReadiness;
+  capabilities: HarnessCapability[];
+  errors: string[];
   user?: { id: string; email?: string };
   conversations: Conversation[];
   activeConversationId?: string;
@@ -68,5 +90,6 @@ export interface AppState {
 
 export interface BridgeEvent {
   type: "status" | "delta" | "done" | "error" | "interaction" | "citation" | "artifact";
+  sequence?: number;
   [key: string]: unknown;
 }

@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ runId:
   const supabase = await createSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
-  const run = await supabase.from("runs").select("external_run_id,status").eq("id", runId).single();
+  const run = await supabase.from("runs").select("external_run_id,status").eq("id", runId).eq("user_id", user.id).single();
   if (run.error || !run.data.external_run_id) return Response.json({ error: "Run is not controllable yet." }, { status: 409 });
   const body = await request.json().catch(() => undefined) as { response?: unknown; command?: unknown; cancel?: unknown } | undefined;
   if (!body || typeof body !== "object") return Response.json({ error: "Invalid command." }, { status: 400 });

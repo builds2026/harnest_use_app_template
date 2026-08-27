@@ -1,0 +1,130 @@
+.iconButton {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.iconButton:hover, .iconButton[data-popup-open] { color: var(--text-primary); background: var(--surface-hover); }
+.iconButton:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
+.popupPositioner { z-index: 300; outline: 0; }
+
+.tooltip {
+  max-width: 240px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--tooltip-bg);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  line-height: 1.35;
+  transform-origin: var(--transform-origin);
+  transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+:global(:root[data-theme="dark"]) .tooltip { color: #17181d; }
+
+.tooltip[data-starting-style], .tooltip[data-ending-style],
+.menuPopup[data-starting-style], .menuPopup[data-ending-style],
+.selectPopup[data-starting-style], .selectPopup[data-ending-style] { opacity: 0; transform: scale(.98); }
+
+.menuPopup,
+.selectPopup {
+  min-width: 220px;
+  padding: 7px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+  transform-origin: var(--transform-origin);
+  transition: transform var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+.menuItem {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: var(--radius-control);
+  outline: 0;
+  cursor: default;
+}
+
+.menuItem:not(:has(.menuIcon)) { grid-template-columns: minmax(0, 1fr); }
+.menuItem[data-highlighted] { background: var(--surface-hover); }
+.menuItem[data-disabled] { color: var(--text-tertiary); opacity: .55; }
+.menuItem > span:last-child { display: grid; gap: 2px; }
+.menuItem strong { font-size: 13px; }
+.menuItem small { color: var(--text-tertiary); font-size: 10px; }
+.menuIcon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.danger { color: var(--danger); }
+
+.field { display: grid; gap: 6px; }
+.fieldLabel { color: var(--text-secondary); font-size: 10px; }
+.fieldError { color: var(--danger); font-size: 10px; }
+
+.selectTrigger {
+  display: inline-flex;
+  min-width: 160px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 9px 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  font: inherit;
+}
+
+.selectTrigger:hover:not([data-disabled]) { background: var(--surface-hover); }
+.selectTrigger[data-popup-open] { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.selectIcon { color: var(--text-tertiary); }
+.selectList { max-height: min(320px, var(--available-height)); overflow: auto; }
+.selectItem { display: grid; min-height: 38px; grid-template-columns: 17px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px 9px; border-radius: var(--radius-control); outline: 0; cursor: default; }
+.selectItem[data-highlighted] { background: var(--surface-hover); }
+.selectItem[data-selected] { color: var(--accent); background: var(--accent-soft); }
+.selectIndicator { font-size: 11px; font-weight: 800; }
+
+.backdrop { position: fixed; inset: 0; z-index: 400; background: var(--overlay); transition: opacity var(--motion-normal) ease; }
+.backdrop[data-starting-style], .backdrop[data-ending-style] { opacity: 0; }
+.dialogViewport { position: fixed; inset: 0; z-index: 401; display: grid; place-items: center; padding: 24px; }
+.dialog { width: min(430px, 100%); padding: 26px; border: 1px solid var(--border); border-radius: 22px; color: var(--text-primary); background: var(--surface-raised); box-shadow: var(--shadow-lg); transform-origin: center; transition: transform var(--motion-normal) ease, opacity var(--motion-normal) ease; }
+.dialog[data-starting-style], .dialog[data-ending-style] { opacity: 0; transform: translateY(8px) scale(.98); }
+.dialogIcon { display: grid; width: 40px; height: 40px; margin-bottom: 18px; place-items: center; border-radius: 13px; color: var(--accent); background: var(--accent-soft); font-weight: 800; }
+.dialogIconDanger { color: var(--danger); background: var(--danger-soft); }
+.dialogTitle { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+.dialogDescription { margin: 9px 0 24px; color: var(--text-secondary); font-size: 13px; line-height: 1.65; }
+.dialogActions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.secondaryButton, .primaryButton { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; font: inherit; font-weight: 700; cursor: pointer; }
+.secondaryButton { color: var(--text-primary); background: var(--surface-muted); }
+.primaryButton { border-color: var(--accent); color: #fff; background: var(--accent); }
+.dangerButton { border-color: var(--danger); background: var(--danger); }
+
+.toastViewport { position: fixed; right: 24px; bottom: 24px; z-index: 500; width: min(380px, calc(100vw - 32px)); }
+.toast { position: absolute; right: 0; bottom: 0; width: 100%; border: 1px solid var(--border); border-radius: var(--radius-card); color: var(--text-primary); background: var(--surface-raised); box-shadow: var(--shadow-lg); transform: translateY(calc(var(--toast-offset-y) * -1)); transition: transform var(--motion-normal) ease, opacity var(--motion-normal) ease; }
+.toast[data-starting-style], .toast[data-ending-style] { opacity: 0; transform: translateY(16px); }
+.toastContent { display: grid; min-height: 70px; grid-template-columns: 32px minmax(0, 1fr) 28px; align-items: center; gap: 11px; padding: 13px; }
+.toastMark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; color: var(--success); background: var(--success-soft); font-weight: 800; }
+.toastContent > span:nth-child(2) { display: grid; gap: 3px; }
+.toastTitle { font-size: 13px; font-weight: 750; }
+.toastDescription { color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.toastClose { width: 28px; height: 28px; border: 0; border-radius: 8px; color: var(--text-tertiary); background: transparent; font-size: 18px; cursor: pointer; }
+.toastClose:hover { background: var(--surface-hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip, .menuPopup, .selectPopup, .backdrop, .dialog, .toast { transition: none; }
+}

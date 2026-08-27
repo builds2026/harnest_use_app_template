@@ -221,7 +221,7 @@ subgraphs:
           maxToolCalls: 10
           toolTimeoutMs: 30000
           maxTokens: 16000
-          toolError: model
+          toolError: fail
           allowTools: [builtin.web-search, builtin.web-scrape]
       - id: output
         type: output
@@ -258,7 +258,7 @@ subgraphs:
           maxToolCalls: 14
           toolTimeoutMs: 60000
           maxTokens: 24000
-          toolError: model
+          toolError: fail
           allowTools: [builtin.code-runner, builtin.file, builtin.shell]
       - id: output
         type: output

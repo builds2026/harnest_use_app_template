@@ -1,4 +1,13 @@
 import { HarnestClient, type WireEnvelope } from "@harnestai/sdk";
+import type { AppReadiness, HarnessCapability } from "./types";
+
+type PublicContract = {
+  capabilities: string[];
+  requiredConnections: string[];
+  tools: { component: string; tool?: string; connectionId?: string }[];
+};
+
+export type HarnestRuntime = { configured: boolean; healthy: boolean; readyConnections?: string[]; contract?: PublicContract; error?: string };
 
 const object = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -24,6 +33,67 @@ export function harnestClient() {
   return new HarnestClient({ baseUrl: process.env.HARNEST_URL, token: process.env.HARNEST_TOKEN });
 }
 
+const words = (value: string) => value.replace(/^builtin\./u, "").replaceAll(/[._-]+/gu, " ").replace(/\b\w/gu, (letter) => letter.toUpperCase());
+
+export async function readHarnestRuntime(): Promise<HarnestRuntime> {
+  if (!process.env.HARNEST_URL) return { configured: false, healthy: false, error: "HARNEST_URL is not configured" };
+  const base = process.env.HARNEST_URL.replace(/\/+$/u, "");
+  const headers = process.env.HARNEST_TOKEN ? { authorization: `Bearer ${process.env.HARNEST_TOKEN}` } : undefined;
+  try {
+    const [health, contract] = await Promise.all([
+      fetch(`${base}/health`, { headers, signal: AbortSignal.timeout(5_000) }),
+      fetch(`${base}/contract`, { headers, signal: AbortSignal.timeout(5_000) }),
+    ]);
+    if (!health.ok || !contract.ok) throw new Error(`Harnest returned HTTP ${!health.ok ? health.status : contract.status}`);
+    const [healthValue, contractValue] = await Promise.all([health.json(), contract.json()]) as [unknown, unknown];
+    const healthObject = object(healthValue);
+    const value = object(contractValue);
+    if (healthObject?.ok !== true || !Array.isArray(value?.capabilities) || !Array.isArray(value.requiredConnections) || !Array.isArray(value.tools)) {
+      throw new Error("Harnest returned an invalid health or contract response");
+    }
+    const capabilities = value.capabilities.filter((item): item is string => typeof item === "string");
+    const requiredConnections = value.requiredConnections.filter((item): item is string => typeof item === "string");
+    const tools = value.tools.flatMap((item) => {
+      const tool = object(item);
+      return typeof tool?.component === "string" ? [{
+        component: tool.component,
+        ...(typeof tool.tool === "string" ? { tool: tool.tool } : {}),
+        ...(typeof tool.connectionId === "string" ? { connectionId: tool.connectionId } : {}),
+      }] : [];
+    });
+    const readyConnections = Array.isArray(healthObject.readyConnections)
+      ? healthObject.readyConnections.filter((item): item is string => typeof item === "string")
+      : [];
+    return { configured: true, healthy: true, readyConnections, contract: { capabilities, requiredConnections, tools } };
+  } catch (error) {
+    return { configured: true, healthy: false, error: error instanceof Error ? error.message : "Harnest is unavailable" };
+  }
+}
+
+export function deriveHarnestState(runtime: HarnestRuntime, readyConnectionNames: readonly string[]): {
+  readiness: AppReadiness; capabilities: HarnessCapability[]; missing: string[];
+} {
+  const contract = runtime.contract;
+  const readyConnections = new Set([...readyConnectionNames, ...(runtime.readyConnections ?? [])]);
+  const requiredConnections = contract?.requiredConnections ?? [];
+  const missingConnections = requiredConnections.filter((name) => !readyConnections.has(name));
+  const harnest = !runtime.configured ? "not-configured" : runtime.healthy && contract ? "ready" : "unreachable";
+  const ready = harnest === "ready" && missingConnections.length === 0;
+  const capabilities: HarnessCapability[] = [
+    ...(contract?.capabilities ?? []).map((id) => ({ id, label: words(id), kind: "capability" as const, ready })),
+    ...(contract?.tools ?? []).map((tool) => ({
+      id: `tool:${tool.component}`, label: words(tool.tool ?? tool.component), kind: "tool" as const,
+      ready: harnest === "ready" && (!tool.connectionId || readyConnections.has(tool.connectionId)),
+      ...(tool.connectionId ? { connectionId: tool.connectionId } : {}),
+    })),
+  ];
+  return {
+    readiness: { ready, harnest, requiredConnections, missingConnections, ...(runtime.error ? { message: runtime.error } : {}) },
+    capabilities,
+    missing: [...(harnest === "not-configured" ? ["HARNEST_URL"] : harnest === "unreachable" ? ["Harnest /health and /contract"] : []), ...missingConnections],
+  };
+}
+
 /** Removes graph input/output, model text, tool arguments, and internal state. */
 export function publicHarnestEvent(event: WireEnvelope, publicNodeId?: string): Record<string, unknown> {
   const data = object(event.data) ?? {};
@@ -37,6 +107,8 @@ export function publicHarnestEvent(event: WireEnvelope, publicNodeId?: string): 
   if (event.type === "interaction.requested") {
     const kind = data.kind;
     const interaction = selectedObject(data, ["id", "kind", "title", "message", "blocking", "schema", "checkpoint", "expiresAt"]);
+    const requester = object(data.requester);
+    if (requester) interaction.requester = selectedObject(requester, ["kind", "id"]);
     const interactionData = object(data.data);
     if (kind === "oauth" && interactionData) {
       interaction.data = selectedObject(interactionData, ["elicitationId"]);

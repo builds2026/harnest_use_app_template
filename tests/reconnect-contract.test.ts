@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("owned run SSE supports replay ids, Last-Event-ID, heartbeat, and waiting close", async () => {
+test("owned run SSE supports replay ids, Last-Event-ID, heartbeat, and a durable wait", async () => {
   const [source, workspace] = await Promise.all([
     readFile(new URL("app/api/runs/[runId]/events/route.ts", root), "utf8"),
     readFile(new URL("components/workspace.tsx", root), "utf8"),
@@ -14,6 +14,7 @@ test("owned run SSE supports replay ids, Last-Event-ID, heartbeat, and waiting c
   assert.match(source, /event: message/u);
   assert.match(source, /: heartbeat/u);
   assert.match(source, /status === "waiting"/u);
+  assert.doesNotMatch(source, /status === "waiting"[^}]*break/u);
   assert.match(source, /eq\("user_id", user\.id\)/u);
   assert.match(source, /headers\.get\("last-event-id"\) \?\? new URL/u);
   assert.doesNotMatch(workspace, /events\?after=0/u);

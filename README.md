@@ -4,7 +4,11 @@ A working Next.js 16 + React 19 + Base UI service surface. Supabase owns identit
 
 ## Run the explicit local development path
 
+This checkout uses `file:../harnest/packages/*` dependencies so the reference app and runtime stay on the same unpublished `0.2.0-beta.2` source. Build the sibling Harnest packages first; replace these file links with the released package version only after `beta.2` is published.
+
 ```bash
+cd ../harnest && npm install && npm run build:packages
+cd ../nextjs_ai
 npm install
 cp .env.example .env.local
 # set NEXT_PUBLIC_LOCAL_DEMO=true
@@ -17,7 +21,7 @@ The amber banner is intentional: this path is deterministic UI development only.
 
 1. Create a Supabase project, enable an Auth email provider, and add `http://localhost:3000/auth/callback` (plus the deployed callback) to the Auth redirect allowlist.
 2. Link the Supabase CLI and run `supabase db push`. The migration creates the schema, RLS, private Storage buckets, rate limiter, and safe `SKIP LOCKED` job leases.
-3. Copy `.env.example` to `.env.local`; set the Supabase URL and anon key. Keep `NEXT_PUBLIC_LOCAL_DEMO=false`.
+3. Copy `.env.example` to `.env.local`; set the Supabase URL and anon key. Keep `NEXT_PUBLIC_LOCAL_DEMO=false` and `AUTH_AUTO_CONFIRM=false`. Auto-confirm is only for disposable local Auth tests because it bypasses proof of email ownership.
 4. Run the reviewed Harnest spec as a separate service. The script loads the ignored `.env.local`; its HTTP HostProvider adapter consumes the internal provider URL and bearer without placing either in graph input, events, or trace:
 
    ```bash
@@ -40,7 +44,7 @@ Node worker ──opaque job/context refs + shared Bearer──> Next internal A
      └──@harnestai/sdk v1 HTTP/SSE──> Harnest runtime       └──lease/persist via Supabase
 ```
 
-`POST /api/chat` authenticates, checks owned file references, creates a short-lived `contextRef`, and enqueues a durable job. The Next-owned internal worker API leases jobs and persists public events, snapshots, messages, and terminal state. The separate worker sees only opaque job/context references and uses the published `@harnestai/sdk` package for `create()` and reconnectable `events(after)`. Paused jobs keep renewing and reconnect from the last sequence. If Harnest restarts, the app persists a fresh resume idempotency key before recreating the active handle; a worker crash reuses that pending key instead of duplicating the resume. `/api/state` plus the owned run replay route restore an interaction after a browser reload. Browser SSE replays only committed Supabase events; only `HARNEST_PUBLIC_NODE_ID` deltas reach it, and `run.completed.data.output` is authoritative. Planner, classifier, tool payloads, and private state stay out of the projection.
+`POST /api/chat` authenticates, checks owned file references, creates a short-lived `contextRef`, and enqueues a durable job. The Next-owned internal worker API leases jobs and persists public events, snapshots, messages, and terminal state. The separate worker sees only opaque job/context references and uses the version-matched `@harnestai/sdk` for `create()` and reconnectable `events(after)`; this checkout source-links it until `beta.2` is published. Paused jobs keep renewing and reconnect from the last sequence. If Harnest restarts, the app persists a fresh resume idempotency key before recreating the active handle; a worker crash reuses that pending key instead of duplicating the resume. `/api/state` plus the owned run replay route restore an interaction after a browser reload. Browser SSE replays only committed Supabase events; only `HARNEST_PUBLIC_NODE_ID` deltas reach it, and `run.completed.data.output` is authoritative. Planner, classifier, tool payloads, and private state stay out of the projection.
 
 Interaction responses and cancellations go through the authenticated command route and the same SDK's `respond()`, `command()`, and `cancel()` calls. Stable sequence numbers make reconnect/replay safe, while SQL `SKIP LOCKED` leases and renewals prevent concurrent job ownership.
 All six interaction kinds are rendered: select, input, closed-schema form, verified file, same-origin OAuth completion, and permission. For an OAuth interaction, create an owned `connections` row whose `name` matches the interaction `elicitationId`. Its non-secret `public_config.oauth` supplies `authorizationUrl`, `tokenUrl`, `clientId`, optional `scopes`/`authorizationParams`, and `tokenAuthMethod`; put any client secret in Vault. The app creates and consumes one-time state, exchanges the code server-side, and replaces the Vault value with the app-owned token set. Persistent `allow_always` grants remain host-owned and can be reviewed or revoked from the Permissions tab.

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@harnestai/sdk": "0.2.0-beta.1"
+    "@harnestai/sdk": "file:../../harnest/packages/sdk"
   },
   "devDependencies": {
     "tsx": "^4.20.6",

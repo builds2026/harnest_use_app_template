@@ -2,22 +2,23 @@ import { NextResponse } from "next/server";
 import { demoState, localDemoEnabled } from "@/lib/demo";
 import { createSupabaseServer, supabaseConfigured } from "@/lib/supabase/server";
 import type { AppState } from "@/lib/types";
-import { runEventLabel } from "@/lib/harnest";
+import { deriveHarnestState, readHarnestRuntime, runEventLabel } from "@/lib/harnest";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (localDemoEnabled()) return NextResponse.json(demoState(), { headers: { "cache-control": "no-store" } });
+  if (localDemoEnabled()) return NextResponse.json(demoState(new URL(request.url).searchParams.get("conversation") ?? undefined), { headers: { "cache-control": "no-store" } });
   if (!supabaseConfigured()) {
     return NextResponse.json({
       mode: "setup", setup: { missing: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"] },
-      conversations: [], messages: [], files: [], artifacts: [], memories: [], pkmSources: [], citations: [], trace: [], permissions: [], connections: [],
+      capabilities: [], errors: [], conversations: [], messages: [], files: [], artifacts: [], memories: [], pkmSources: [], citations: [], trace: [], permissions: [], connections: [],
     } satisfies AppState, { status: 503 });
   }
 
   const supabase = await createSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in with Supabase Auth to continue." }, { status: 401 });
+  const harnestRuntime = readHarnestRuntime();
 
   const requestedId = new URL(request.url).searchParams.get("conversation");
   const { data: rows, error } = await supabase.from("conversations")
@@ -44,6 +45,15 @@ export async function GET(request: Request) {
   ]);
   const activeRunResult = activeConversationId ? await supabase.from("runs").select("id,status").eq("conversation_id", activeConversationId).in("status", ["queued", "running", "waiting"]).order("created_at", { ascending: false }).limit(1).maybeSingle() : { data: null };
   const interactionResult = activeRunResult.data ? await supabase.from("events").select("type,payload").eq("run_id", activeRunResult.data.id).in("type", ["interaction.requested", "interaction.resolved"]).order("sequence").limit(500) : { data: [] };
+  const partialErrors: string[] = [];
+  const noteError = (label: string, result: unknown) => {
+    const error = result && typeof result === "object" ? (result as { error?: { message?: string } | null }).error : undefined;
+    if (error?.message) partialErrors.push(`Could not load ${label}.`);
+  };
+  noteError("messages", messageResult); noteError("files", fileResult); noteError("artifacts", artifactResult); noteError("memory", memoryResult);
+  noteError("PKM sources", sourceResult); noteError("citations", citationResult); noteError("trace", eventResult); noteError("permissions", permissionResult);
+  noteError("connections", connectionResult); noteError("active run", activeRunResult); noteError("interactions", interactionResult);
+  const harnest = deriveHarnestState(await harnestRuntime, (connectionResult.data ?? []).filter(({ status }) => status === "ready").map(({ name }) => name));
   const pendingInteractions = new Map<string, Record<string, unknown>>();
   for (const event of interactionResult.data ?? []) {
     const payload = event.payload as { interaction?: Record<string, unknown>; interactionId?: unknown };
@@ -53,7 +63,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     mode: "production", user: { id: user.id, email: user.email }, conversations, activeConversationId,
-    setup: { missing: ["gemini-main", "search-main"].filter((name) => !(connectionResult.data ?? []).some((row) => row.name === name && row.status === "ready")) },
+    setup: { missing: harnest.missing }, readiness: harnest.readiness, capabilities: harnest.capabilities, errors: partialErrors,
     ...(activeRunResult.data ? { activeRun: { id: activeRunResult.data.id, status: activeRunResult.data.status, interactions: [...pendingInteractions.values()] } } : {}),
     messages: (messageResult.data ?? []).map((row) => ({ id: row.id, role: row.role, content: row.content, createdAt: row.created_at })),
     files: (fileResult.data ?? []).map((row) => ({ id: row.id, name: row.name, mimeType: row.mime_type, size: row.size_bytes, sha256: row.sha256 ?? undefined, status: row.status })),

@@ -28,6 +28,9 @@ export async function POST(request: Request) {
   const fileIds = Array.isArray(body.fileIds) ? [...new Set(body.fileIds.filter(isId))].slice(0, 10) : [];
   if (!message || message.length > 32_000) return Response.json({ error: "Message must contain 1–32,000 characters." }, { status: 400 });
 
+  if (localDemoEnabled() && request.headers.get("accept")?.includes("application/json")) {
+    return Response.json({ runId: crypto.randomUUID(), conversationId: "demo-quarterly", status: "succeeded", output: deterministicReply(message) }, { status: 202 });
+  }
   if (localDemoEnabled()) return streamResponse(async (send) => {
     const runId = crypto.randomUUID();
     send({ type: "status", runId, phase: "classifying", label: "Classifying request" });

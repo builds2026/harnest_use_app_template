@@ -30,6 +30,10 @@ export const CONNECTION_PRESETS = {
   },
 } as const;
 
+export const connectionLabel = (name: string) =>
+  Object.values(CONNECTION_PRESETS).find((preset) => preset.name === name)?.label
+  ?? (name === "sandbox-main" ? "Local sandbox" : name.replaceAll(/[._-]+/gu, " "));
+
 export function connectionInput(value: unknown): { preset: ConnectionPreset; secret: string } | { error: string } {
   if (!value || typeof value !== "object") return { error: "Invalid connection request." };
   const body = value as Record<string, unknown>;

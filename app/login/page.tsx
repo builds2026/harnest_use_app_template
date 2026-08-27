@@ -8,5 +8,5 @@ export default async function LoginPage() {
     const { data: { user } } = await (await createSupabaseServer()).auth.getUser();
     if (user) redirect("/");
   }
-  return <AuthForm configured={configured} />;
+  return <AuthForm configured={configured} autoConfirm={process.env.AUTH_AUTO_CONFIRM === "true"} />;
 }

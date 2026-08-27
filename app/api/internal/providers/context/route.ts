@@ -158,20 +158,14 @@ export async function POST(request: Request) {
 
   if (body.operation === "connections.resolve") {
     if (typeof providerRequest.connectionId !== "string" || !["metadata", "provider", "tool"].includes(String(providerRequest.purpose))) return failure("Invalid connection resolution.");
-    let connection = await supabase.from("connections").select("name,kind,public_config,status").eq("user_id", userId).eq("name", providerRequest.connectionId).eq("status", "ready").maybeSingle();
-    if (!connection.error && !connection.data && process.env.ARC_SHARED_TEST_CONNECTIONS === "true") {
-      connection = await supabase.from("connections").select("name,kind,public_config,status").eq("name", providerRequest.connectionId).eq("status", "ready").limit(1).maybeSingle();
-    }
+    const connection = await supabase.from("connections").select("name,kind,public_config,status").eq("user_id", userId).eq("name", providerRequest.connectionId).eq("status", "ready").maybeSingle();
     if (connection.error) return failure("Connection provider failed.", 502);
     return response(connection.data ? { id: connection.data.name, kind: connection.data.kind, configuration: safeConfiguration(connection.data.public_config) } : null);
   }
 
   if (body.operation === "connections.fetch" || body.operation === "connections.execute") {
     if (typeof providerRequest.connectionId !== "string") return failure("Invalid connection operation.");
-    let connection = await supabase.from("connections").select("id,public_config,status,vault_secret_id").eq("user_id", userId).eq("name", providerRequest.connectionId).eq("status", "ready").maybeSingle();
-    if (!connection.error && !connection.data && process.env.ARC_SHARED_TEST_CONNECTIONS === "true") {
-      connection = await supabase.from("connections").select("id,public_config,status,vault_secret_id").eq("name", providerRequest.connectionId).eq("status", "ready").limit(1).maybeSingle();
-    }
+    const connection = await supabase.from("connections").select("id,public_config,status,vault_secret_id").eq("user_id", userId).eq("name", providerRequest.connectionId).eq("status", "ready").maybeSingle();
     if (connection.error || !connection.data) return failure("Connection was not found.", 404);
     const config = record(connection.data.public_config) ?? {};
     if (typeof config.baseUrl !== "string") return failure("Connection has no reviewed base URL.", 409);
